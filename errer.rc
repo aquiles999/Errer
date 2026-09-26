@@ -1,0 +1,7 @@
+#include <windows.h>
+
+#define IDI_ICON1    111
+#define IDR_MP3      112
+
+IDI_ICON1 ICON "Resources\Icon.ico"
+IDR_MP3   RCDATA "Resources\badapple.mp3"
