@@ -101,9 +101,21 @@ void NavigateFakeExplorer(HWND hwnd, const wchar_t* path) {
     PIDLIST_ABSOLUTE pidl = NULL;
     if (SUCCEEDED(SHParseDisplayName(path, NULL, &pidl, 0, NULL)) && pidl) {
         pBrowser->BrowseToIDList(pidl, 0);
+        if (wcsncmp(path, L"::", 2) == 0) {
+            PWSTR friendly = NULL;
+            if (SUCCEEDED(SHGetNameFromIDList(pidl, SIGDN_NORMALDISPLAY, &friendly)) && friendly) {
+                SetWindowTextW(hwnd, friendly);
+                CoTaskMemFree(friendly);
+            } else {
+                SetWindowTextW(hwnd, path);
+            }
+        } else {
+            SetWindowTextW(hwnd, path);
+        }
         CoTaskMemFree(pidl);
+    } else {
+        SetWindowTextW(hwnd, path);
     }
-    SetWindowTextW(hwnd, path);
 }
 
 void DestroyFakeExplorer(HWND hwnd) {

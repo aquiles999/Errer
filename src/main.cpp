@@ -1,4 +1,6 @@
 #include <windows.h>
+#include <mmsystem.h>
+#include <stdlib.h>
 
 extern void PlayBadApple();
 extern void StopBadApple();
@@ -24,6 +26,7 @@ static HANDLE g_children[MAX_CHILDREN] = {};
 static int g_childCount = 0;
 
 void SetChildMode() {
+    timeBeginPeriod(1);
     InterlockedExchange((volatile LONG*)&g_childMode, 1);
 }
 
@@ -105,7 +108,48 @@ static DWORD SpawnPayload(const wchar_t* arg) {
     return code;
 }
 
+static DWORD MciPositionMs() {
+    wchar_t pos[32];
+    if (mciSendStringW(L"status errer_mp3 position", pos, 32, NULL) == 0) return (DWORD)_wtol(pos);
+    return 0;
+}
+
+// MCI's decode clock drifts vs wall clock, so re-align the song anchor to
+// MCI's live position before spawning the next payload. Later payloads then
+// ride the audio timeline instead of accumulating drift.
+static DWORD CorrectSongAnchor() {
+    DWORD pos = MciPositionMs();
+    if (pos == 0) return g_audioStartTick;
+    DWORD expected = GetTickCount() - g_audioStartTick;
+    if (expected == 0) return g_audioStartTick;
+    LONG drift = (LONG)((LONGLONG)pos - expected);
+    if (drift < -1500 || drift > 1500) return g_audioStartTick;
+    DWORD corrected = g_audioStartTick + (DWORD)drift;
+    wchar_t buf[32];
+    wsprintfW(buf, L"%lu", corrected);
+    SetEnvironmentVariableW(L"ERRER_SONG_START", buf);
+    return corrected;
+}
+
+static void WaitSongPoint(DWORD corrected, DWORD songMs, DWORD leadMs) {
+    LONG remaining = (LONG)(corrected + songMs - leadMs - GetTickCount());
+    while (remaining > 0) {
+        Sleep(5);
+        remaining = (LONG)(corrected + songMs - leadMs - GetTickCount());
+    }
+}
+
+// A payload must be spawned *before* its song offset so its own SongSyncWait
+// can align to the exact ms we assigned. Spawn ~250ms early; the child then
+// clamps to the precise beat.
+static DWORD SpawnPayloadAt(DWORD songMs, const wchar_t* arg) {
+    DWORD corrected = CorrectSongAnchor();
+    WaitSongPoint(corrected, songMs, 250);
+    return SpawnPayload(arg);
+}
+
 void runAll() {
+    timeBeginPeriod(1);
     FreeConsole();
     CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
 
@@ -115,27 +159,28 @@ void runAll() {
     wsprintfW(songStartBuf, L"%lu", g_audioStartTick);
     SetEnvironmentVariableW(L"ERRER_SONG_START", songStartBuf);
 
-    DWORD c1 = SpawnPayload(L"--payload1");
+    DWORD c1 = SpawnPayloadAt(0, L"--payload1");
     if (c1 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c2 = SpawnPayload(L"--payload2");
+    DWORD c2 = SpawnPayloadAt(15572, L"--payload2");
     if (c2 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c3 = SpawnPayload(L"--payload3");
+    DWORD c3 = SpawnPayloadAt(29421, L"--payload3");
     if (c3 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c4 = SpawnPayload(L"--payload4");
+    DWORD c4 = SpawnPayloadAt(85059, L"--payload4");
     if (c4 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c5 = SpawnPayload(L"--payload5");
+    DWORD c5 = SpawnPayloadAt(112887, L"--payload5");
     if (c5 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c6 = SpawnPayload(L"--payload6");
+    DWORD c6 = SpawnPayloadAt(126834, L"--payload6");
     if (c6 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
-    DWORD c7 = SpawnPayload(L"--payload7");
+    DWORD c7 = SpawnPayloadAt(182850, L"--payload7");
     if (c7 == KILL_ABORT_EXIT) { StopBadApple(); KillChildren(); TerminateProcess(GetCurrentProcess(), KILL_ABORT_EXIT); }
 
     StopBadApple();
+    timeEndPeriod(1);
     CoUninitialize();
 }

@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <string>
+#include <vector>
 #include <exdisp.h>
 #include <shlobj.h>
 #include <shlguid.h>
@@ -25,23 +26,31 @@ static IMFMediaSession* g_session = NULL;
 DWORD g_audioStartTick = 0;
 
 static const int NAV_DELAYS[45] = {
-    411,   424,   121,    87,   112,
-    111,   401,   448,   424,   224,
-    223,   441,   439,   432,   112,
-    103,    81,   119,   458,   446,
-    425,   223,   270,   362,   457,
-    416,   120,   120,    81,   144,
-    448,   409,   440,   216,   330,
-    327,   423,   432,   112,   112,
-     89,   127,   449,   409,   415
+    432,   439,   104,    88,   129,
+     88,   448,   423,   440,   216,
+    224,   440,   433,   439,   104,
+    104,    88,   129,   430,   424,
+    408,   232,   216,   425,   456,
+    408,   113,    95,   104,   128,
+    416,   448,   440,   240,   216,
+    425,   439,   432,   111,    89,
+     96,   127,   408,   440,   512
 };
 
-static const wchar_t* NAV_PATHS[5] = {
+static const wchar_t* NAV_PATHS[] = {
     L"C:\\",
     L"C:\\Users",
     L"C:\\Windows\\System32",
     L"C:\\Windows\\SysWOW64",
-    NULL
+    L"C:\\Windows\\Temp",
+    L"C:\\Program Files",
+    L"C:\\Program Files (x86)",
+    L"C:\\Users\\Public",
+    L"::{20D04FE0-3AEA-1069-A2D8-08002B30309D}",   // This PC
+    L"::{26EE0668-A00A-44D7-9371-BEB064C98683}",   // Control Panel
+    L"::{59031A47-3F72-44A7-89C5-5595FE6B30EE}",   // User's Files
+    L"::{645FF040-5081-101B-9F08-00AA002F954E}",   // Recycle Bin
+    L"::{374DE290-123F-4565-9164-39C4925E467B}"    // Downloads
 };
 
 static std::wstring GetExpandedUserProfile() {
@@ -110,8 +119,22 @@ static void PlayWithMci(void* data, DWORD size) {
     std::wstring cmd = L"open \"" + std::wstring(tmp) + L"\" type mpegvideo alias errer_mp3";
     DWORD r = mciSendStringW(cmd.c_str(), NULL, 0, NULL);
     if (r != 0) { DbgLog(L"mci open failed", (HRESULT)r); return; }
+
+    mciSendStringW(L"set errer_mp3 time format milliseconds", NULL, 0, NULL);
+
     g_audioStartTick = GetTickCount();
     mciSendStringW(L"play errer_mp3", NULL, 0, NULL);
+
+    // Re-anchor at the moment audio actually becomes audible instead of
+    // the instant the play command was queued.
+    for (int i = 0; i < 100; i++) {
+        wchar_t posBuf[32] = {};
+        if (mciSendStringW(L"status errer_mp3 position", posBuf, 32, 0) == 0) {
+            long pos = _wtol(posBuf);
+            if (pos > 0) { g_audioStartTick = GetTickCount(); break; }
+        }
+        Sleep(5);
+    }
 }
 
 void PlayBadApple() {
@@ -311,7 +334,9 @@ void runPayload1() {
     }
 
     std::wstring userProfile = GetExpandedUserProfile();
-    const wchar_t* dirs[5] = { NAV_PATHS[0], NAV_PATHS[1], NAV_PATHS[2], NAV_PATHS[3], userProfile.c_str() };
+    std::vector<const wchar_t*> dirs;
+    for (size_t i = 0; i < _countof(NAV_PATHS); i++) dirs.push_back(NAV_PATHS[i]);
+    dirs.push_back(userProfile.c_str());
 
     DWORD songAnchor = g_audioStartTick;
     {
@@ -332,13 +357,13 @@ void runPayload1() {
                 DWORD target = songAnchor + (DWORD)beats[i];
                 if ((LONG)(now - target) >= 0) continue;
                 PumpMessagesFor(target - now);
-                NavigateFakeExplorer(hwnd, dirs[i % 5]);
+                NavigateFakeExplorer(hwnd, dirs[i % dirs.size()]);
             }
         } else {
             PumpMessagesFor(1700);
             for (int i = 0; i < NUM_NAV; i++) {
                 if (!IsWindow(hwnd)) break;
-                NavigateFakeExplorer(hwnd, dirs[i % 5]);
+                NavigateFakeExplorer(hwnd, dirs[i % dirs.size()]);
                 PumpMessagesFor(NAV_DELAYS[i]);
             }
         }
