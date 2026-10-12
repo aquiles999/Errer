@@ -1,4 +1,4 @@
-just a open source remake of 2989 by endermanch nothing much to see here
+just a open source remake of 2989 by endermanch nothing much to see here this is just here to show how much effort it takes to remake 2989 atleast kinda minimally (doesnt have toast notifications yet)
 
 well if you want to build the exe here are the steps (very simplified)
 
